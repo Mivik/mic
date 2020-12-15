@@ -20,9 +20,10 @@ struct base_graph {
 	using edge_type = std::conditional_t<has_info, std::pair<size_t, edge_info>, size_t>;
 	using node_t = size_t;
 private:
-	std::vector<std::vector<edge_type>> arr;
 	template<class T>
 	struct empty_string_helper { inline std::string operator()(const T &t) { return ""; } };
+protected:
+	std::vector<std::vector<edge_type>> arr;
 public:
 	inline size_t size() const { return arr.size(); }
 	inline bool empty() const { return arr.empty(); }
