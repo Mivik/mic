@@ -7,32 +7,16 @@
 #include <limits>
 #include <random>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 #include "graph.h"
 
 namespace mic {
 
-template<class C, class E>
-struct sequence_helper {
-	inline size_t size(const C &t) const = delete;
-	inline const E& get(const C &t, size_t i) const = delete;
-};
-
-template<>
-struct sequence_helper<std::string, char> {
-	inline size_t size(const std::string &t) const { return t.size(); }
-	inline const char& get(const std::string &t, size_t i) const { return t[i]; }
-};
-
-template<class T, size_t S>
-struct sequence_helper<T[S], T> {
-	inline size_t size(const T t[S]) const { return S; }
-	inline const T& get(const T t[S], size_t i) const { return t[i]; }
-};
-
 template<class G = std::mt19937>
 struct random_engine {
+	static const size_t CHOOSE_USE_SPARSE_THRESOLD = 1024;
 private:
 	template<class T>
 	using distribution_type =
@@ -58,31 +42,109 @@ public:
 	template<class T>
 	inline void shuffle(T first, T last) { std::shuffle(first, last, engine); }
 	inline bool percent(int p) { return operator()(1, 100) <= p; }
-	template<class E, class C, class H = sequence_helper<C, E>>
-	inline const E& select(const C &source) {
-		const H helper;
-		return helper.get(source, rand(0UL, helper.size(source) - 1));
+	// We don't guarantee that the result is sorted.
+	template<class T, class = std::enable_if_t<std::is_integral_v<T>>>
+	inline std::vector<T> choose(T lo, T hi, size_t num) {
+		assert(lo <= hi);
+		const auto len = hi - lo + 1;
+		assert(len >= num);
+		if (len < CHOOSE_USE_SPARSE_THRESOLD) {
+			short tmp[len]; std::iota(tmp, tmp + len, 0);
+			shuffle(tmp, tmp + len);
+			std::vector<T> ret; ret.resize(num);
+			for (size_t i = 0; i < num; ++i) ret[i] = lo + tmp[i];
+			return ret;
+		} else {
+			std::unordered_map<T, T> rest;
+			T tmp[num];
+			for (T i = 0; i < num; ++i) tmp[i] = lo + i;
+			for (T i = 0; i < num; ++i) {
+				const T j = rand(i, len - 1);
+				if (j < num) std::swap(tmp[i], tmp[j]);
+				else {
+					auto it = rest.find(j);
+					if (it == rest.end()) {
+						rest[j] = tmp[i];
+						tmp[i] = lo + j;
+					} else std::swap(tmp[i], it->second);
+				}
+			}
+			return std::vector<T>(tmp, tmp + num);
+		}
 	}
-	template<class E, class C, class H = sequence_helper<C, E>>
-	inline std::vector<E> sequence(const C &source, size_t len) {
-		std::vector<E> ret; ret.reserve(len);
-		for (size_t i = 0; i < len; ++i) ret.push_back(select(source));
-		return ret;
+
+#define DEFINE_CHOOSE \
+	template<class T> \
+	inline typename std::iterator_traits<T>::reference choose
+
+	DEFINE_CHOOSE(T first, T last, std::input_iterator_tag) {
+		auto ret = first; ++first;
+		size_t i = 0;
+		while (first != last) {
+			if (!rand<size_t>(0, ++i)) ret = first;
+			++first;
+		}
+		return *ret;
 	}
+	DEFINE_CHOOSE(T first, T last, std::random_access_iterator_tag) {
+		return *(first + rand<size_t>(0, last - first - 1));
+	}
+	DEFINE_CHOOSE(T first, T last) {
+		assert(first != last);
+		return choose(first, last, typename std::iterator_traits<T>::iterator_category());
+	}
+
+#undef DEFINE_CHOOSE
+
+#define DEFINE_CHOOSE \
+	template<class InputIt, class OutputIt> \
+	inline void choose
+
+	DEFINE_CHOOSE(InputIt first, InputIt last, size_t num, OutputIt result, std::input_iterator_tag) {
+		std::vector<InputIt> ret; ret.resize(num);
+		size_t i = 0;
+		while (first != last && i != num) {
+			ret[i] = first;
+			++first; ++i;
+		}
+		assert(i == num && "Input elements are not enough");
+		while (first != last) {
+			const size_t pos = rand<size_t>(0, i++);
+			if (pos < num) ret[pos] = first;
+			++first;
+		}
+		for (auto &it : ret) { *result = *it; ++it; }
+	}
+	DEFINE_CHOOSE(InputIt first, InputIt last, size_t num, OutputIt result, std::random_access_iterator_tag) {
+		for (size_t pos : choose<size_t>(0, last - first - 1, num)) {
+			*result = *(first + pos);
+			++result;
+		}
+	}
+	DEFINE_CHOOSE(InputIt first, InputIt last, size_t num, OutputIt result) {
+		assert(num > 0);
+		choose(first, last, num, result, typename std::iterator_traits<InputIt>::iterator_category());
+	}
+
+#undef DEFINE_CHOOSE
+
 	inline graph::tree tree(size_t size) {
-		assert(size > 1);
+		assert(size > 0);
+		if (size == 1) {
+			graph::tree tr; tr.resize(1);
+			return tr;
+		}
 		std::vector<size_t> prufer; prufer.resize(size - 2);
 		for (size_t &v : prufer) v = rand(0UL, size - 1);
 		return graph::tree::from_prufer_code(prufer);
 	}
 	inline std::string brackets(size_t n) {
-		assert(!(n & 1));
-		bool arr[n];
-		const size_t half = n >> 1;
-		std::fill(arr, arr + half, 1);
-		std::fill(arr + half, arr + n, 0);
-		shuffle(arr, arr + n);
-		size_t start = 0, end = n;
+		const size_t len = n << 1;
+		bool arr[len];
+		std::fill(arr, arr + n, 1);
+		std::fill(arr + n, arr + len, 0);
+		shuffle(arr, arr + len);
+		size_t start = 0, end = len;
 		while (true) {
 			size_t lef_count = 0, rig_count = 0;
 			bool ok = true;
@@ -108,11 +170,11 @@ public:
 			}
 			if (ok) break;
 		}
-		std::string ret; ret.resize(n);
-		for (size_t i = 0; i < n; ++i) ret[i] = "()"[arr[i]];
+		std::string ret; ret.resize(len);
+		for (size_t i = 0; i < len; ++i) ret[i] = "()"[arr[i]];
 		return ret;
 	}
-	inline graph::binary_tree binary_tree(size_t n) { return graph::binary_tree::from_brackets(brackets(n << 1)); }
+	inline graph::binary_tree binary_tree(size_t n) { return graph::binary_tree::from_brackets(brackets(n)); }
 };
 
 } // namespace mic
