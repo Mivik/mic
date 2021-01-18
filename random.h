@@ -31,20 +31,26 @@ private:
 public:
 	random_engine(): engine(std::random_device{}()) {}
 	random_engine(typename G::result_type seed): engine(seed) {}
+
 	template<class T>
 	inline typename T::result_type dist(T &t) { return t(engine); }
 	template<class T>
 	inline typename T::result_type dist(T &&t) { return t(engine); }
+
 	template<class T>
 	inline T rand(const T &l, const T &r) { return distribution_type<T>(l, r)(engine); }
 	template<class T>
 	inline T operator()(const T &l, const T &r) { return rand(l, r); }
+
 	template<class T>
 	inline void shuffle(T first, T last) { std::shuffle(first, last, engine); }
+
 	inline bool percent(int p) { return operator()(1, 100) <= p; }
+
 	// We don't guarantee that the result is sorted.
 	template<class T, class = std::enable_if_t<std::is_integral_v<T>>>
 	inline std::vector<T> choose(T lo, T hi, size_t num) {
+		if (!num) return {};
 		assert(lo <= hi);
 		const auto len = hi - lo + 1;
 		assert(len >= num);
@@ -100,33 +106,51 @@ public:
 	template<class InputIt, class OutputIt> \
 	inline void choose
 
-	DEFINE_CHOOSE(InputIt first, InputIt last, size_t num, OutputIt result, std::input_iterator_tag) {
-		std::vector<InputIt> ret; ret.resize(num);
+	DEFINE_CHOOSE(InputIt first, InputIt last, size_t count, OutputIt result, std::input_iterator_tag) {
+		std::vector<InputIt> ret; ret.resize(count);
 		size_t i = 0;
-		while (first != last && i != num) {
+		while (first != last && i != count) {
 			ret[i] = first;
 			++first; ++i;
 		}
-		assert(i == num && "Input elements are not enough");
+		assert(i == count && "Input elements are not enough");
 		while (first != last) {
 			const size_t pos = rand<size_t>(0, i++);
-			if (pos < num) ret[pos] = first;
+			if (pos < count) ret[pos] = first;
 			++first;
 		}
 		for (auto &it : ret) { *result = *it; ++it; }
 	}
-	DEFINE_CHOOSE(InputIt first, InputIt last, size_t num, OutputIt result, std::random_access_iterator_tag) {
-		for (size_t pos : choose<size_t>(0, last - first - 1, num)) {
+	DEFINE_CHOOSE(InputIt first, InputIt last, size_t count, OutputIt result, std::random_access_iterator_tag) {
+		for (size_t pos : choose<size_t>(0, last - first - 1, count)) {
 			*result = *(first + pos);
 			++result;
 		}
 	}
-	DEFINE_CHOOSE(InputIt first, InputIt last, size_t num, OutputIt result) {
-		assert(num > 0);
-		choose(first, last, num, result, typename std::iterator_traits<InputIt>::iterator_category());
+	DEFINE_CHOOSE(InputIt first, InputIt last, size_t count, OutputIt result) {
+		assert(count > 0);
+		choose(first, last, count, result, typename std::iterator_traits<InputIt>::iterator_category());
 	}
 
 #undef DEFINE_CHOOSE
+
+	template<class T, class = std::enable_if_t<std::is_integral_v<T>>>
+	inline std::vector<T> partition(T sum, T count, T min_value = 1) {
+		if (min_value < 0) min_value = 0;
+		assert(sum >= 0 && count > 0);
+		assert(min_value * count <= sum);
+		const T len = sum + count * (1 - min_value) - 1;
+		auto ps = choose<T>(0, len - 1, count - 1);
+		std::sort(ps.begin(), ps.end());
+		std::vector<T> ret; ret.resize(count);
+		T last = 0;
+		for (size_t i = 0; i < ps.size(); ++i) {
+			ret[i] = ps[i] - last + min_value;
+			last = ps[i] + 1;
+		}
+		ret.back() = len - last + min_value;
+		return ret;
+	}
 
 	inline graph::tree tree(size_t size) {
 		assert(size > 0);
@@ -138,6 +162,7 @@ public:
 		for (size_t &v : prufer) v = rand(0UL, size - 1);
 		return graph::tree::from_prufer_code(prufer);
 	}
+
 	inline std::string brackets(size_t n) {
 		const size_t len = n << 1;
 		bool arr[len];
@@ -157,7 +182,7 @@ public:
 					// ( ) ) ) ) ( ( ( ) ) ) ( ( (
 					//     i ---S--- j -----T-----
 
-					// We swap S and T and then flip S, i and j
+					// we swap S and T and then flip S, i and j
 					const size_t len = j - i - 1;
 					std::rotate(arr + i + 1, arr + j + 1, arr + end);
 					std::copy_backward(arr + end - len - 1, arr + end - 1, arr + end);
@@ -174,6 +199,7 @@ public:
 		for (size_t i = 0; i < len; ++i) ret[i] = "()"[arr[i]];
 		return ret;
 	}
+
 	inline graph::binary_tree binary_tree(size_t n) { return graph::binary_tree::from_brackets(brackets(n)); }
 };
 
