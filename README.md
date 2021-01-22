@@ -126,6 +126,13 @@ int main() {
 	std::vector<int> arr = { 1, 2, 3, 4, 5 };
 	e.shuffle(arr.begin(), arr.end());
 	for (int v : arr) std::cout << v << ' '; std::cout << std::endl;
+
+	for (size_t v : e.choose<size_t>(1, 100000000000, 5)) // randomly choose 5 distinct numbers between [1, 100000000000]
+		std::cout << v << ' '; std::cout << std::endl;
+
+	std::vector<int> dst;
+	e.choose(arr.begin(), arr.end(), 3, std::back_inserter(dst));
+	for (int v : dst) std::cout << v << ' '; std::cout << std::endl;
 }
 ```
 
