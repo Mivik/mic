@@ -2,8 +2,10 @@
 #ifndef __MIC_ZEN_H_
 #define __MIC_ZEN_H_
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 
 #include <unistd.h>
 
@@ -30,11 +32,66 @@ inline int map(int x, int lx, int hx, int ly, int hy) { return (int)((double)(x 
 
 inline int cmd(const std::string &str) { return system(str.data()); }
 
+struct Subtask {
+	std::string name;
+	uint32_t score, num_data;
+	std::function<void(int, std::ofstream&)> gen;
+};
+
+class Problem {
+public:
+	explicit Problem(const std::string &name): name(name) {}
+	inline bool gen();
+	const Subtask& reg(const std::string &name, uint32_t score, uint32_t num_data, std::function<void(int, std::ofstream&)> gen) {
+		tasks.push_back({ name, score, num_data, gen });
+		return tasks.back();
+	}
+private:
+	std::string name;
+	std::vector<Subtask> tasks;
+};
+
+bool Problem::gen() {
+	using namespace mic::term;
+
+	uint32_t total = 0;
+	for (auto &task : tasks) total += task.num_data;
+
+	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + name + ".cpp -o /tmp/" + name)) {
+		cerr < "Failed to compile\n";
+		return false;
+	}
+	std::filesystem::create_directories("data");
+	uint32_t id = 0;
+	auto info = [&](const Subtask &task, uint32_t cur) -> std::ostream& {
+		reset_line();
+		cout < status_color < '[' < task.name < ']' < (reset) < ' ';
+		cout < status_color < '[' < cur < '/' < task.num_data < ']' < (reset) < ' ';
+		cout < status_color < (int)std::round((double)(id + cur) * 100 / total) < (reset) < ' ';
+		return cout;
+	};
+	for (auto &task : tasks) {
+		for (uint32_t i = 1; i <= task.num_data; ++i) {
+			const std::string prefix = "data/" + std::to_string(id + i) + ".";
+			info(task, i) < "Generating input... "; cout.flush();
+			std::ofstream out(prefix + "in"); task.gen(i, out); out.close();
+			info(task, i) < "Generating output... "; cout.flush();
+			if (cmd("/tmp/" + name + " < " + prefix + "in > " + prefix + "out")) {
+				cerr < "\nFailed to execute std.\n";
+				return false;
+			}
+		}
+		id += task.num_data;
+	}
+	reset_line(); cout < "Done\n"; cout.flush();
+	return true;
+}
+
 template<class Func, class = std::enable_if_t<std::is_invocable_r_v<void, Func, int, std::ofstream&>>>
 inline bool gen(const std::string &name, int amount, const Func &func) {
 	using namespace mic::term;
 
-	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS + name + ".cpp -o /tmp/" + name)) {
+	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + name + ".cpp -o /tmp/" + name)) {
 		cerr < "Failed to compile\n";
 		return false;
 	}
@@ -100,6 +157,17 @@ inline bool check(const std::string &A, const std::string &B, const Func &gen) {
 }
 
 } // namespace zen
+
+#define PROBLEM(name) \
+	namespace zen { Problem main(#name); } \
+	int main() { zen::main.gen(); }
+
+#define SUBTASK(name, score, num) \
+	namespace zen { \
+	void subtask_##name##_impl(int id, std::ofstream &out); \
+	const Subtask &subtask_##name = main.reg(#name, score, num, subtask_##name##_impl); \
+	} \
+	void zen::subtask_##name##_impl(int id, std::ofstream &out)
 
 #define ZEN_GEN(name, amount) \
 	inline void gen(int id, std::ofstream &out); \
