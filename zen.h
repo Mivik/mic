@@ -13,8 +13,12 @@
 
 using std::cerr;
 
+#ifndef ZEN_COMPILER
+#define ZEN_COMPILER "clang++"
+#endif
+
 #ifndef ZEN_COMPILE_OPTS
-#define ZEN_COMPILE_OPTS "-O2 "
+#define ZEN_COMPILE_OPTS "-O2"
 #endif
 
 namespace zen {
@@ -30,7 +34,7 @@ template<class Func, class = std::enable_if_t<std::is_invocable_r_v<void, Func, 
 inline bool gen(const std::string &name, int amount, const Func &func) {
 	using namespace mic::term;
 
-	if (cmd("clang++ " ZEN_COMPILE_OPTS + name + ".cpp -o /tmp/" + name)) {
+	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS + name + ".cpp -o /tmp/" + name)) {
 		cerr < "Failed to compile\n";
 		return false;
 	}
@@ -60,8 +64,8 @@ template<class Func, class = std::enable_if_t<std::is_invocable_r_v<void, Func, 
 inline bool check(const std::string &A, const std::string &B, const Func &gen) {
 	using namespace mic::term;
 
-	if (cmd("clang++ " ZEN_COMPILE_OPTS + A + " -o /tmp/A")
-		|| cmd("clang++ " ZEN_COMPILE_OPTS + B + " -o /tmp/B")) {
+	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + A + " -o /tmp/A")
+		|| cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + B + " -o /tmp/B")) {
 		cerr < error_color < "\nFailed to compile\n" < reset;
 		return false;
 	}
