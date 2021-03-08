@@ -1,6 +1,5 @@
 
-#ifndef __MIC_H_
-#define __MIC_H_
+#pragma once
 
 #include <cstdio>
 #include <cstring>
@@ -39,5 +38,3 @@ const char endl = '\n';
 // coco: preserve_end
 
 using std::cout;
-
-#endif

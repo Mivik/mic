@@ -1,6 +1,5 @@
 
-#ifndef __MIC_ZEN_H_
-#define __MIC_ZEN_H_
+#pragma once
 
 #include <cstdint>
 #include <filesystem>
@@ -178,5 +177,3 @@ inline bool check(const std::string &A, const std::string &B, const Func &gen) {
 	inline void gen(std::ofstream &out); \
 	int main() { zen::check(A, B, gen); } \
 	inline void gen(std::ofstream &out)
-
-#endif

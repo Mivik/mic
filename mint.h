@@ -1,6 +1,5 @@
 
-#ifndef __MIC_MINT_H_
-#define __MIC_MINT_H_
+#pragma once
 
 #include "io.h"
 #include "math.h"
@@ -26,5 +25,3 @@ struct mint {
 };
 template<> struct Q<mint> { inline void operator()(MI &r, mint &t) { r > t.v; } };
 // coco: preserve_end
-
-#endif

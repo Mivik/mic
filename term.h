@@ -1,6 +1,5 @@
 
-#ifndef __MIC_TERM_H_
-#define __MIC_TERM_H_
+#pragma once
 
 #include <iostream>
 #include <cassert>
@@ -96,5 +95,3 @@ inline void move(int row, int col) {
 #undef F
 #undef D
 } // namespace mic::term
-
-#endif

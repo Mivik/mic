@@ -1,6 +1,5 @@
 
-#ifndef __MIC_RANDOM_H_
-#define __MIC_RANDOM_H_
+#pragma once
 
 #include <algorithm>
 #include <cassert>
@@ -204,5 +203,3 @@ public:
 };
 
 } // namespace mic
-
-#endif

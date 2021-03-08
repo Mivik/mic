@@ -1,6 +1,5 @@
 
-#ifndef __MIC_GRAPH_H_
-#define __MIC_GRAPH_H_
+#pragma once
 
 #include <algorithm>
 #include <cassert>
@@ -236,5 +235,3 @@ public:
 
 } // namespace graph
 } // namespace mic
-
-#endif
