@@ -46,13 +46,15 @@ enum PackType : uint8_t {
 };
 
 struct GenConfig {
-	bool use_subtask_directory = false;
-	ConfigFileFormat config_file = None;
-	PackType pack_type = GenOnly;
-	ScoreType score_type = Average;
-	uint32_t memory_limit = 131072; // KB
-	uint32_t score = 100;
-	uint32_t time_limit = 1000; // ms
+#define D(name, type, def) type name = def; // For better sorting
+	D(config_file, ConfigFileFormat, None)
+	D(memory_limit, uint32_t, 131072) // KB
+	D(pack_type, PackType, GenOnly)
+	D(score, uint32_t, 100)
+	D(score_type, ScoreType, Average)
+	D(time_limit, uint32_t, 1000) // ms
+	D(use_subtask_directory, bool, false)
+#undef D
 };
 
 class Testcase {
@@ -216,7 +218,7 @@ bool Problem::gen() {
 				if (i == 1) subtask_score = tests.back().score;
 				else if (tests.back().score != subtask_score) throw std::invalid_argument("Scores in a subtask cannot differ!");
 			}
-			if (gen_config.score_type == Manual && score == -1)
+			if (gen_config.score_type == Manual && tests.back().score == -1)
 				throw std::runtime_error("Score type set to \"Manual\" but no score was set");
 			stream.close();
 			info(group, i) < "Generating output... "; cout.flush();
