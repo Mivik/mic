@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -33,15 +34,25 @@ inline int map(int x, int lx, int hx, int ly, int hy) { return (int)((double)(x 
 inline int cmd(const std::string &str) { return system(str.data()); }
 
 enum ConfigFileFormat : uint8_t {
-	None, Luogu
+	None, Luogu, UOJ
+};
+
+enum ScoreType : uint8_t {
+	Manual, Average, Same
+};
+
+enum PackType : uint8_t {
+	GenOnly, PackOnly, PackAndDelete
 };
 
 struct GenConfig {
 	bool use_subtask_directory = false;
-	uint32_t single_score = -1; // -1: distribute averagely
-	uint32_t time_limit = 1000; // ms
+	ConfigFileFormat config_file = None;
+	PackType pack_type = GenOnly;
+	ScoreType score_type = Average;
 	uint32_t memory_limit = 131072; // KB
-	ConfigFileFormat config_file_format;
+	uint32_t score = 100;
+	uint32_t time_limit = 1000; // ms
 };
 
 class Testcase {
@@ -55,9 +66,9 @@ public:
 	template<class T>
 	inline Testcase& operator<(const T &t) { stream < t; return *this; }
 private:
-	Testcase(uint32_t subtask_id, const GenConfig &config, std::ofstream &stream):
+	Testcase(uint32_t subtask_id, uint32_t score, const GenConfig &config, std::ofstream &stream):
 		subtask_id(subtask_id),
-		score(config.single_score),
+		score(score),
 		time_limit(config.time_limit),
 		memory_limit(config.memory_limit),
 		stream(stream) {}
@@ -65,7 +76,7 @@ private:
 	friend class Problem;
 };
 
-struct Subtask {
+struct TestcaseGroup {
 	std::string name;
 	uint32_t id, num_data;
 	std::function<void(int, Testcase&)> gen;
@@ -75,19 +86,30 @@ class Problem {
 public:
 	explicit Problem(const std::string &name): name(name) {}
 	inline bool gen();
-	const Subtask& reg(const std::string &name, uint32_t num_data, std::function<void(int, Testcase&)> gen) {
-		tasks.push_back({ name, (uint32_t)tasks.size() + 1, num_data, gen });
-		return tasks.back();
+	char reg_subtask(const std::string &name, uint32_t num_data, std::function<void(int, Testcase&)> gen) {
+		if (!has_subtask) {
+			if (!groups.empty()) throw std::invalid_argument("You can't add subtask to a non-subtask problem");
+			has_subtask = true;
+		}
+		groups.push_back({ name, (uint32_t)groups.size() + 1, num_data, gen });
+		return '\0';
 	}
+	char reg_batch(const std::string &name, uint32_t num_data, std::function<void(int, Testcase&)> gen) {
+		if (has_subtask) throw std::invalid_argument("You can't add non-subtask testcases to a problem that contains subtasks");
+		groups.push_back({ name, (uint32_t)groups.size() + 1, num_data, gen });
+		return '\0';
+	}
+	void writeConfigFile(const std::vector<Testcase> &tests);
 
 	GenConfig gen_config;
 private:
 	std::string name;
-	std::vector<Subtask> tasks;
+	std::vector<TestcaseGroup> groups;
+	bool has_subtask = false;
 };
 
-inline void writeConfigFile(const std::vector<Testcase> &tests, const ConfigFileFormat format) {
-	switch (format) {
+void Problem::writeConfigFile(const std::vector<Testcase> &tests) {
+	switch (gen_config.config_file) {
 		case None: return;
 		case Luogu: {
 			std::ofstream out("data/config.yml");
@@ -96,21 +118,63 @@ inline void writeConfigFile(const std::vector<Testcase> &tests, const ConfigFile
 				out < (i + 1) < ".in\n";
 				out < "  timeLimit: " < e.time_limit < '\n';
 				out < "  memoryLimit: " < e.memory_limit < '\n';
+				out < "  subtaskId: " < e.subtask_id < '\n';
+				out < "  score: " < e.score < '\n';
 			}
+			out.close();
 			break;
 		}
+		case UOJ: {
+			std::ofstream out("data/problem.conf");
+			out < "use_builtin_judger on\n";
+			out < "use_builtin_checker ncmp\n";
+			out < "n_tests " < tests.size() < '\n';
+			out < "n_sample_tests 0\n";
+			out < "n_ex_tests 0\n";
+			out < "input_suf in\n";
+			out < "output_suf out\n";
+			uint32_t max_time_limit = 0, max_memory_limit;
+			for (const auto &test : tests) {
+				max_time_limit = std::max(test.time_limit, max_time_limit);
+				max_memory_limit = std::max(test.memory_limit, max_memory_limit);
+			}
+			out < "time_limit " < (uint32_t)std::round((double)max_time_limit / 1000) < '\n';
+			out < "memory_limit " < (uint32_t)std::round((double)max_memory_limit / 256) < '\n';
+			if (has_subtask) {
+				out < "n_subtasks " < groups.size() < '\n';
+				for (size_t i = 0; i < tests.size(); ++i) {
+					if (i != tests.size() - 1 && tests[i].subtask_id == tests[i + 1].subtask_id) continue;
+					out < "subtask_score_" < tests[i].subtask_id < ' ' < tests[i].score < '\n';
+					out < "subtask_end_" < tests[i].subtask_id < ' ' < (i + 1) < '\n';
+				}
+			} else
+				for (size_t i = 0; i < tests.size(); ++i)
+					out < "point_score_" < (i + 1) < ' ' < tests[i].score < '\n';
+			out.close();
+			break;
+		}
+		default: assert(false);
 	}
 }
 
 bool Problem::gen() {
 	using namespace mic::term;
-	namespace fs =  std::filesystem;
+	namespace fs = std::filesystem;
+
+	if (gen_config.use_subtask_directory && gen_config.config_file == Luogu)
+		throw std::runtime_error("Subtask directory is not supported in Luogu");
+	if (gen_config.use_subtask_directory && gen_config.config_file == UOJ)
+		throw std::runtime_error("Subtask directory is not supported in UOJ");
+	if (gen_config.use_subtask_directory && !has_subtask)
+		throw std::invalid_argument("You can't enable subtask directory in a non-subtask problem");
 
 	uint32_t total = 0;
-	for (auto &task : tasks) total += task.num_data;
-	if (gen_config.single_score == -1) {
-		if (100 % total) throw std::invalid_argument("Cannot divide 100 points into " + std::to_string(total) + " testcases");
-		gen_config.single_score = 100 / total;
+	for (auto &group : groups) total += group.num_data;
+	uint32_t score_thresold, score_average;
+	if (gen_config.score_type == Average) {
+		const uint32_t num = has_subtask? groups.size(): total;
+		score_average = 100 / num;
+		score_thresold = num - (100 - num * score_average);
 	}
 
 	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + name + ".cpp -o /tmp/" + name)) {
@@ -122,36 +186,57 @@ bool Problem::gen() {
 
 	std::vector<Testcase> tests; tests.reserve(total);
 	uint32_t id = 0;
-	auto info = [&](const Subtask &task, uint32_t cur) -> std::ostream& {
+	auto info = [&](const TestcaseGroup &group, uint32_t cur) -> std::ostream& {
 		reset_line();
 		cout < status_color < (int)std::round((double)(id + cur - 1) * 100 / total) < '%' < (reset) < ' ';
-		cout < subtask_color < '[' < task.name < ']' < (reset) < ' ';
-		cout < status_color < '[' < cur < '/' < task.num_data < ']' < (reset) < ' ';
+		cout < subtask_color < '[' < group.name < ']' < (reset) < ' ';
+		cout < status_color < '[' < cur < '/' < group.num_data < ']' < (reset) < ' ';
 		return cout;
 	};
-	for (auto &task : tasks) {
+	for (auto &group : groups) {
 		std::string dir;
 		if (gen_config.use_subtask_directory) {
-			dir = "data/subtask" + std::to_string(task.id);
+			dir = "data/subtask" + std::to_string(group.id);
 			fs::create_directories(dir);
 			dir += '/';
 		} else dir = "data/";
-		for (uint32_t i = 1; i <= task.num_data; ++i) {
+		uint32_t subtask_score;
+		for (uint32_t i = 1; i <= group.num_data; ++i) {
 			const auto prefix = dir + std::to_string(gen_config.use_subtask_directory? i: (id + i)) + ".";
-			info(task, i) < "Generating input... "; cout.flush();
+			info(group, i) < "Generating input... "; cout.flush();
 			std::ofstream stream(prefix + "in");
-			tests.push_back(Testcase(task.id, gen_config, stream));
-			task.gen(i, tests.back());
+			uint32_t score = -1;
+			if (gen_config.score_type == Average) {
+				score = score_average;
+				if ((has_subtask? group.id: (id + i)) > score_thresold) ++score;
+			} else if (gen_config.score_type == Same) score = gen_config.score;
+			tests.push_back(Testcase(has_subtask? group.id: 0, score, gen_config, stream));
+			group.gen(i, tests.back());
+			if (has_subtask) {
+				if (i == 1) subtask_score = tests.back().score;
+				else if (tests.back().score != subtask_score) throw std::invalid_argument("Scores in a subtask cannot differ!");
+			}
+			if (gen_config.score_type == Manual && score == -1)
+				throw std::runtime_error("Score type set to \"Manual\" but no score was set");
 			stream.close();
-			info(task, i) < "Generating output... "; cout.flush();
+			info(group, i) < "Generating output... "; cout.flush();
 			if (cmd("/tmp/" + name + " < " + prefix + "in > " + prefix + "out")) {
 				cerr < '\n' < error_color < "Failed to execute std." < (reset) < '\n';
 				return false;
 			}
 		}
-		id += task.num_data;
+		id += group.num_data;
 	}
 	reset_line(); cout < status_color < "[100%]" < (reset) < " Done\n"; cout.flush();
+	writeConfigFile(tests);
+	if (gen_config.pack_type == GenOnly) return true;
+	cout < "Packing..."; cout.flush();
+	if (cmd("zip -qj " + name + ".zip data/*")) {
+		cerr < "Failed to pack\n";
+		return false;
+	}
+	reset_line(); cout < "Packed to " < name < ".zip\n";
+	if (gen_config.pack_type == PackAndDelete) fs::remove_all("data");
 	return true;
 }
 
@@ -235,14 +320,21 @@ inline bool check(const std::string &A, const std::string &B, const Func &gen) {
 #define SUBTASK(name, num) \
 	namespace zen { \
 	void subtask_##name##_impl(int id, Testcase &out); \
-	const Subtask &subtask_##name = main.reg(#name, num, subtask_##name##_impl); \
+	const char subtask_##name##_helper = main.reg_subtask(#name, num, subtask_##name##_impl); \
 	} \
 	void zen::subtask_##name##_impl(int id, Testcase &out)
 
-#define CONFIG(block) \
+#define BATCH(name, num) \
+	namespace zen { \
+	void subtask_##name##_impl(int id, Testcase &out); \
+	const char subtask_##name##_helper = main.reg_batch(#name, num, subtask_##name##_impl); \
+	} \
+	void zen::subtask_##name##_impl(int id, Testcase &out)
+
+#define CONFIG( ... ) \
 	namespace zen { \
 		struct config_static_code_helper { \
-			config_static_code_helper() { zen::main.gen_config = block; } \
+			config_static_code_helper() { zen::main.gen_config = __VA_ARGS__; } \
 		} _config_static_code_helper_instance; \
 	}
 
