@@ -42,7 +42,7 @@ enum ScoreType : uint8_t {
 };
 
 enum PackType : uint8_t {
-	GenOnly, PackOnly, PackAndDelete
+	GenOnly, PackOnly, GenAndPack
 };
 
 struct GenConfig {
@@ -163,12 +163,13 @@ bool Problem::gen() {
 	using namespace mic::term;
 	namespace fs = std::filesystem;
 
-	if (gen_config.use_subtask_directory && gen_config.config_file == Luogu)
-		throw std::runtime_error("Subtask directory is not supported in Luogu");
-	if (gen_config.use_subtask_directory && gen_config.config_file == UOJ)
-		throw std::runtime_error("Subtask directory is not supported in UOJ");
-	if (gen_config.use_subtask_directory && !has_subtask)
-		throw std::invalid_argument("You can't enable subtask directory in a non-subtask problem");
+	if (gen_config.use_subtask_directory) {
+		if (!has_subtask) throw std::invalid_argument("You can't enable subtask directory in a non-subtask problem");
+		if (gen_config.config_file == Luogu)
+			throw std::runtime_error("Subtask directory is not supported in Luogu");
+		if (gen_config.config_file == UOJ)
+			throw std::runtime_error("Subtask directory is not supported in UOJ");
+	}
 
 	uint32_t total = 0;
 	for (auto &group : groups) total += group.num_data;
@@ -238,7 +239,7 @@ bool Problem::gen() {
 		return false;
 	}
 	reset_line(); cout < "Packed to " < name < ".zip\n";
-	if (gen_config.pack_type == PackAndDelete) fs::remove_all("data");
+	if (gen_config.pack_type == PackOnly) fs::remove_all("data");
 	return true;
 }
 
