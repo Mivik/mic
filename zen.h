@@ -135,7 +135,7 @@ void Problem::writeConfigFile(const std::vector<Testcase> &tests) {
 			out < "n_ex_tests 0\n";
 			out < "input_suf in\n";
 			out < "output_suf out\n";
-			uint32_t max_time_limit = 0, max_memory_limit;
+			uint32_t max_time_limit = 0, max_memory_limit = 0;
 			for (const auto &test : tests) {
 				max_time_limit = std::max(test.time_limit, max_time_limit);
 				max_memory_limit = std::max(test.memory_limit, max_memory_limit);
