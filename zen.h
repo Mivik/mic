@@ -47,6 +47,7 @@ enum PackType : uint8_t {
 
 struct GenConfig {
 #define D(name, type, def) type name = def; // For better sorting
+	D(checker, std::string, "")
 	D(config_file, ConfigFileFormat, None)
 	D(memory_limit, uint32_t, 131072) // KB
 	D(pack_type, PackType, GenOnly)
@@ -140,8 +141,8 @@ void Problem::writeConfigFile(const std::vector<Testcase> &tests) {
 				max_time_limit = std::max(test.time_limit, max_time_limit);
 				max_memory_limit = std::max(test.memory_limit, max_memory_limit);
 			}
-			out < "time_limit " < (uint32_t)std::round((double)max_time_limit / 1000) < '\n';
-			out < "memory_limit " < (uint32_t)std::round((double)max_memory_limit / 256) < '\n';
+			out < "time_limit " < (uint32_t)std::ceil((double)max_time_limit / 1000) < '\n';
+			out < "memory_limit " < (uint32_t)std::ceil((double)max_memory_limit / 256) < '\n';
 			if (has_subtask) {
 				out < "n_subtasks " < groups.size() < '\n';
 				for (size_t i = 0; i < tests.size(); ++i) {
@@ -169,6 +170,10 @@ bool Problem::gen() {
 			throw std::runtime_error("Subtask directory is not supported in Luogu");
 		if (gen_config.config_file == UOJ)
 			throw std::runtime_error("Subtask directory is not supported in UOJ");
+	}
+	if (!gen_config.checker.empty() && !fs::exists(gen_config.checker)) {
+		cerr < "Provided checker (\"" + gen_config.checker < "\") not found\n";
+		return false;
 	}
 
 	uint32_t total = 0;
@@ -234,7 +239,7 @@ bool Problem::gen() {
 	writeConfigFile(tests);
 	if (gen_config.pack_type == GenOnly) return true;
 	cout < "Packing..."; cout.flush();
-	if (cmd("zip -qj " + name + ".zip data/*")) {
+	if (cmd("zip -qj " + name + ".zip data/* " + gen_config.checker)) {
 		cerr < "Failed to pack\n";
 		return false;
 	}
