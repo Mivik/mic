@@ -118,7 +118,7 @@ void Problem::writeConfigFile(const std::vector<Testcase> &tests) {
 			std::ofstream out("data/config.yml");
 			for (size_t i = 0; i < tests.size(); ++i) {
 				const auto &e = tests[i];
-				out < (i + 1) < ".in\n";
+				out < (i + 1) < ".in:\n";
 				out < "  timeLimit: " < e.time_limit < '\n';
 				out < "  memoryLimit: " < e.memory_limit < '\n';
 				out < "  subtaskId: " < e.subtask_id < '\n';
