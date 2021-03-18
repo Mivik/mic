@@ -13,7 +13,7 @@
 #define A(c,a,b)if(c)a else b;
 #define I(c,a)if(c)a;
 #define Y goto E
-struct MI{private:char bb[4096];FILE*f;char*bs,*be;char e;bool o,l;public:MI():MI(stdin){}MI(FILE*f):f(f),bs(0),be(0),o(0),l(0){}
+struct MI{private:char bb[1 << 14];FILE*f;char*bs,*be;char e;bool o,l;public:MI():f(stdin),bs(0),be(0){}MI(FILE*f):f(f),bs(0),be(0){}
 #ifdef __linux__
 MI(const char*s):f(fmemopen(const_cast<char*>(s),strlen(s),"r")){}
 #endif
@@ -31,10 +31,10 @@ I(bs==be,be=(bs=bb)+fread(bb,1,sizeof(bb),f))I(bs==be,{l=1;L-1;})L*bs++;
 #undef A
 #undef I
 #undef Y
-template<class T>inline std::ostream& operator<(std::ostream&out,const T&t){return out<<t;}
-#define P(x) cout < #x" = " < (x) < endl
+template<class T>std::ostream& operator<(std::ostream&out,const T&t){return out<<t;}
+#define endl ('\n')
+#define P(x) cout<#x" = "<(x)<endl
 #define R (cin.read<int>())
-const char endl = '\n';
 // coco: preserve_end
 
 using std::cout;
