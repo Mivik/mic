@@ -1,11 +1,14 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
+#include <type_traits>
 
 #include <unistd.h>
 
@@ -16,20 +19,21 @@
 using std::cerr;
 
 #ifndef ZEN_COMPILER
-#define ZEN_COMPILER "clang++"
+#define ZEN_COMPILER "g++"
 #endif
 
 #ifndef ZEN_COMPILE_OPTS
 #define ZEN_COMPILE_OPTS "-O2"
 #endif
 
+#define with(init) if (init; 1)
+#define with_lock(mutex) with(std::unique_lock lock(mutex))
+
 namespace zen {
 
 const auto status_color = mic::term::bg_color(mic::term::green) + mic::term::fg_color(mic::term::white);
 const auto error_color = mic::term::bg_color(mic::term::red) + mic::term::fg_color(mic::term::white);
 const auto subtask_color = mic::term::bg_color(mic::term::green) + mic::term::fg_color(mic::term::black);
-
-inline int map(int x, int lx, int hx, int ly, int hy) { return (int)((double)(x - lx + 1) / (hx - lx + 1) * (hy - ly) + ly); }
 
 inline int cmd(const std::string &str) { return system(str.data()); }
 
@@ -48,77 +52,99 @@ enum PackType : uint8_t {
 struct GenConfig {
 #define D(name, type, def) type name = def; // For better sorting
 	D(checker, std::string, "")
+	D(compile_options, std::string, ZEN_COMPILE_OPTS)
+	D(compiler, std::string, ZEN_COMPILER)
 	D(config_file, ConfigFileFormat, None)
+	D(data_prefix, std::string, "")
+	D(input_suffix, std::string, "in")
 	D(memory_limit, uint32_t, 131072) // KB
+	D(output_suffix, std::string, "out")
 	D(pack_type, PackType, GenOnly)
+	D(parallel, bool, true)
 	D(score, uint32_t, 100)
 	D(score_type, ScoreType, Average)
+	D(seed, uint32_t, 0x658c382b)
 	D(time_limit, uint32_t, 1000) // ms
+	D(UOJ_checker, std::string, "ncmp")
 	D(use_subtask_directory, bool, false)
 #undef D
 };
 
 class Testcase {
 public:
+	uint32_t id;
 	uint32_t subtask_id, score;
 	uint32_t time_limit; // ms
 	uint32_t memory_limit; // KB
 
-	std::ofstream &stream;
+	std::ofstream *stream;
 
 	template<class T>
-	inline Testcase& operator<(const T &t) { stream < t; return *this; }
+	inline Testcase& operator<(const T &t) { (*stream) < t; return *this; }
+
+	Testcase(const Testcase &t) = delete;
+	Testcase(Testcase &&t) noexcept:
+		id(t.id),
+		subtask_id(t.subtask_id),
+		score(t.score),
+		time_limit(t.time_limit),
+		memory_limit(t.memory_limit),
+		stream(t.stream) {}
+	Testcase& operator=(Testcase &&t) noexcept = default;
 private:
-	Testcase(uint32_t subtask_id, uint32_t score, const GenConfig &config, std::ofstream &stream):
+	Testcase(uint32_t id, uint32_t subtask_id, uint32_t score, const GenConfig &config, std::ofstream &stream):
+		id(id),
 		subtask_id(subtask_id),
 		score(score),
 		time_limit(config.time_limit),
 		memory_limit(config.memory_limit),
-		stream(stream) {}
+		stream(&stream) {}
 
 	friend class Problem;
 };
 
+using GenFuncType = std::function<void(uint32_t, Testcase&, mic::random_engine<>&&)>;
+
 struct TestcaseGroup {
 	std::string name;
 	uint32_t id, num_data;
-	std::function<void(int, Testcase&)> gen;
+	GenFuncType gen;
 };
 
 class Problem {
 public:
 	explicit Problem(const std::string &name): name(name) {}
 	inline bool gen();
-	char reg_subtask(const std::string &name, uint32_t num_data, std::function<void(int, Testcase&)> gen) {
+	char reg_subtask(const std::string &name, uint32_t num_data, GenFuncType gen) {
 		if (!has_subtask) {
 			if (!groups.empty()) throw std::invalid_argument("You can't add subtask to a non-subtask problem");
 			has_subtask = true;
 		}
-		groups.push_back({ name, (uint32_t)groups.size() + 1, num_data, gen });
+		groups.push_back({ name, (uint32_t)groups.size() + 1, num_data, std::move(gen) });
 		return '\0';
 	}
-	char reg_batch(const std::string &name, uint32_t num_data, std::function<void(int, Testcase&)> gen) {
+	char reg_batch(const std::string &name, uint32_t num_data, GenFuncType gen) {
 		if (has_subtask) throw std::invalid_argument("You can't add non-subtask testcases to a problem that contains subtasks");
-		groups.push_back({ name, (uint32_t)groups.size() + 1, num_data, gen });
+		groups.push_back({ name, (uint32_t)groups.size() + 1, num_data, std::move(gen) });
 		return '\0';
 	}
-	void writeConfigFile(const std::vector<Testcase> &tests);
+	void write_config_file(const std::vector<Testcase> &tests);
 
-	GenConfig gen_config;
+	GenConfig config;
 private:
 	std::string name;
 	std::vector<TestcaseGroup> groups;
 	bool has_subtask = false;
 };
 
-void Problem::writeConfigFile(const std::vector<Testcase> &tests) {
-	switch (gen_config.config_file) {
+void Problem::write_config_file(const std::vector<Testcase> &tests) {
+	switch (config.config_file) {
 		case None: return;
 		case Luogu: {
 			std::ofstream out("data/config.yml");
 			for (size_t i = 0; i < tests.size(); ++i) {
 				const auto &e = tests[i];
-				out < (i + 1) < ".in:\n";
+				out < config.data_prefix < (i + 1) < "." + config.input_suffix < ":\n";
 				out < "  timeLimit: " < e.time_limit < '\n';
 				out < "  memoryLimit: " < e.memory_limit < '\n';
 				out < "  subtaskId: " < e.subtask_id < '\n';
@@ -130,12 +156,14 @@ void Problem::writeConfigFile(const std::vector<Testcase> &tests) {
 		case UOJ: {
 			std::ofstream out("data/problem.conf");
 			out < "use_builtin_judger on\n";
-			out < "use_builtin_checker ncmp\n";
-			out < "n_tests " < tests.size() < '\n';
+			out < "use_builtin_checker " < config.UOJ_checker < endl;
+			out < "n_tests " < tests.size() < endl;
 			out < "n_sample_tests 0\n";
 			out < "n_ex_tests 0\n";
-			out < "input_suf in\n";
-			out < "output_suf out\n";
+			out < "input_pre " < config.data_prefix < endl;
+			out < "input_suf " < config.input_suffix < endl;
+			out < "output_pre " < config.data_prefix < endl;
+			out < "output_suf " < config.output_suffix < endl;
 			uint32_t max_time_limit = 0, max_memory_limit = 0;
 			for (const auto &test : tests) {
 				max_time_limit = std::max(test.time_limit, max_time_limit);
@@ -164,28 +192,28 @@ bool Problem::gen() {
 	using namespace mic::term;
 	namespace fs = std::filesystem;
 
-	if (gen_config.use_subtask_directory) {
+	if (config.use_subtask_directory) {
 		if (!has_subtask) throw std::invalid_argument("You can't enable subtask directory in a non-subtask problem");
-		if (gen_config.config_file == Luogu)
+		if (config.config_file == Luogu)
 			throw std::runtime_error("Subtask directory is not supported in Luogu");
-		if (gen_config.config_file == UOJ)
+		if (config.config_file == UOJ)
 			throw std::runtime_error("Subtask directory is not supported in UOJ");
 	}
-	if (!gen_config.checker.empty() && !fs::exists(gen_config.checker)) {
-		cerr < "Provided checker (\"" + gen_config.checker < "\") not found\n";
+	if (!config.checker.empty() && !fs::exists(config.checker)) {
+		cerr < "Provided checker (\"" + config.checker < "\") not found\n";
 		return false;
 	}
 
 	uint32_t total = 0;
 	for (auto &group : groups) total += group.num_data;
 	uint32_t score_thresold, score_average;
-	if (gen_config.score_type == Average) {
+	if (config.score_type == Average) {
 		const uint32_t num = has_subtask? groups.size(): total;
 		score_average = 100 / num;
 		score_thresold = num - (100 - num * score_average);
 	}
 
-	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + name + ".cpp -o /tmp/" + name)) {
+	if (cmd(config.compiler + " " + config.compile_options + " " + name + ".cpp -o /tmp/" + name)) {
 		cerr < error_color < "Failed to compile" < (reset) < '\n';
 		return false;
 	}
@@ -193,65 +221,100 @@ bool Problem::gen() {
 	fs::create_directories("data");
 
 	std::vector<Testcase> tests; tests.reserve(total);
-	uint32_t id = 0;
-	auto info = [&](const TestcaseGroup &group, uint32_t cur) -> std::ostream& {
-		reset_line();
-		cout < status_color < (int)std::round((double)(id + cur - 1) * 100 / total) < '%' < (reset) < ' ';
-		cout < subtask_color < '[' < group.name < ']' < (reset) < ' ';
-		cout < status_color < '[' < cur < '/' < group.num_data < ']' < (reset) < ' ';
-		return cout;
-	};
+	std::vector<std::future<void>> tasks;
+	std::vector<std::pair<bool, uint32_t>> subtask_score(groups.size(), { 0, 0 });
+	std::vector<std::mutex> group_mutex(groups.size());
+	std::vector<std::pair<uint32_t, std::string>> errors;
+	uint32_t id = 0, progress = 0;
+	std::mutex finish_mutex, test_mutex;
+	std::condition_variable cv;
+
+	mic::random_engine<> rng;
 	for (auto &group : groups) {
-		std::string dir;
-		if (gen_config.use_subtask_directory) {
-			dir = "data/subtask" + std::to_string(group.id);
-			fs::create_directories(dir);
-			dir += '/';
-		} else dir = "data/";
-		uint32_t subtask_score;
 		for (uint32_t i = 1; i <= group.num_data; ++i) {
-			const auto prefix = dir + std::to_string(gen_config.use_subtask_directory? i: (id + i)) + ".";
-			info(group, i) < "Generating input... "; cout.flush();
-			std::ofstream stream(prefix + "in");
-			uint32_t score = -1;
-			if (gen_config.score_type == Average) {
-				score = score_average;
-				if ((has_subtask? group.id: (id + i)) > score_thresold) ++score;
-			} else if (gen_config.score_type == Same) score = gen_config.score;
-			tests.push_back(Testcase(has_subtask? group.id: 0, score, gen_config, stream));
-			group.gen(i, tests.back());
-			if (has_subtask) {
-				if (i == 1) subtask_score = tests.back().score;
-				else if (tests.back().score != subtask_score) throw std::invalid_argument("Scores in a subtask cannot differ!");
-			}
-			if (gen_config.score_type == Manual && tests.back().score == -1)
-				throw std::runtime_error("Score type set to \"Manual\" but no score was set");
-			stream.close();
-			info(group, i) < "Generating output... "; cout.flush();
-			if (cmd("/tmp/" + name + " < " + prefix + "in > " + prefix + "out")) {
-				cerr < '\n' < error_color < "Failed to execute std." < (reset) < '\n';
-				return false;
-			}
+			tasks.push_back(std::async(std::launch::async, [&, i, id](uint32_t seed) {
+				std::string dir;
+				if (config.use_subtask_directory) {
+					dir = "data/subtask" + std::to_string(group.id);
+					fs::create_directories(dir);
+					dir += '/';
+				} else dir = "data/";
+				dir += config.data_prefix;
+				auto error = [&](const std::string &e) {
+					with_lock(finish_mutex) {
+						++progress;
+						errors.emplace_back(id + i, e);
+					}
+					cv.notify_one();
+				};
+
+				const auto prefix = dir + std::to_string(id + i) + ".";
+				std::ofstream stream(prefix + config.input_suffix);
+				uint32_t score = -1;
+				if (config.score_type == Average) {
+					score = score_average;
+					if ((has_subtask? group.id: (id + i)) > score_thresold) ++score;
+				} else if (config.score_type == Same) score = config.score;
+				Testcase test(id + i, has_subtask? group.id: 0, score, config, stream);
+				group.gen(i, test, mic::random_engine<>(seed));
+				if (config.score_type == Manual && test.score == -1) {
+					error("Score type set to \"Manual\" but no score was set");
+					return;
+				}
+				if (has_subtask)
+					with_lock(group_mutex[group.id - 1]) {
+						auto &score = subtask_score[group.id - 1];
+						if (!score.first) score.second = test.score;
+						else if (score.second != test.score) {
+							error("Scores in a subtask cannot differ!");
+							return;
+						}
+					}
+				with_lock(test_mutex) tests.push_back(std::move(test));
+				stream.close();
+				if (cmd("/tmp/" + name + " < " + prefix + config.input_suffix + " > " + prefix + config.output_suffix)) {
+					error("Failed to execute std");
+					return;
+				}
+				with_lock(finish_mutex) ++progress;
+				cv.notify_one();
+			}, rng.rand<uint32_t>()));
 		}
 		id += group.num_data;
 	}
-	reset_line(); cout < status_color < "[100%]" < (reset) < " Done\n"; cout.flush();
-	writeConfigFile(tests);
-	if (gen_config.pack_type == GenOnly) return true;
+	cout < status_color < "[0/" < total < ']' < (reset); cout.flush();
+	while (true) {
+		std::unique_lock lock(finish_mutex); cv.wait(lock);
+		reset_line(); cout < status_color < '[' < progress < '/' < total < ']' < (reset); cout.flush();
+		if (progress == total) break;
+	}
+	for (auto &f : tasks) f.get();
+	cout < endl;
+	if (!errors.empty()) {
+		cout < error_color < errors.size() < " errors occurred" < (reset) < endl;
+		for (auto &[id, msg] : errors)
+			cout < id < ": " < error_color < msg < (reset) < endl;
+		return false;
+	}
+	std::sort(tests.begin(), tests.end(),
+		[](const Testcase &x, const Testcase &y) { return x.id < y.id; });
+	write_config_file(tests);
+	if (config.pack_type == GenOnly) return true;
 	cout < "Packing..."; cout.flush();
-	if (cmd("zip -qj " + name + ".zip data/* " + gen_config.checker)) {
+	fs::remove(name + ".zip");
+	if (cmd("zip -qj " + name + ".zip data/* " + config.checker)) {
 		cerr < "Failed to pack\n";
 		return false;
 	}
 	reset_line(); cout < "Packed to " < name < ".zip\n";
-	if (gen_config.pack_type == PackOnly) fs::remove_all("data");
+	if (config.pack_type == PackOnly) fs::remove_all("data");
 	return true;
 }
 
-template<class Func, class = std::enable_if_t<std::is_invocable_r_v<void, Func, int, std::ofstream&>>>
-inline bool gen(const std::string &name, int amount, const Func &func) {
+template<class Func, class = std::enable_if_t<std::is_invocable_r_v<void, Func, uint32_t, std::ofstream&>>>
+inline bool gen(const std::string &name, uint32_t amount, const Func &func) {
 	using namespace mic::term;
-	namespace fs =  std::filesystem;
+	namespace fs = std::filesystem;
 
 	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + name + ".cpp -o /tmp/" + name)) {
 		cerr < error_color < "Failed to compile" < (reset) < '\n';
@@ -259,7 +322,7 @@ inline bool gen(const std::string &name, int amount, const Func &func) {
 	}
 	fs::remove_all("data");
 	fs::create_directories("data");
-	int id;
+	uint32_t id;
 	auto info = [&](std::ostream &out = cout) -> std::ostream& {
 		reset_line();
 		return out < status_color < '[' < id < '/' < amount < ']' < (reset) < ' ';
@@ -270,7 +333,7 @@ inline bool gen(const std::string &name, int amount, const Func &func) {
 		std::ofstream out(prefix + "in"); func(id, out); out.close();
 		info() < "Generating output... "; cout.flush();
 		if (cmd("/tmp/" + name + " < " + prefix + "in > " + prefix + "out")) {
-			cerr < '\n' < error_color < "Failed to execute std." < (reset) < '\n';
+			cerr < '\n' < error_color < "Failed to execute std" < (reset) < '\n';
 			return false;
 		}
 		info() < "Done";
@@ -289,7 +352,7 @@ inline bool check(const std::string &A, const std::string &B, const Func &gen) {
 		cerr < '\n' < error_color < "Failed to compile" < (reset) < '\n';
 		return false;
 	}
-	int C = 0;
+	uint32_t C = 0;
 	auto info = [&](std::ostream &out = cout) -> std::ostream& {
 		reset_line();
 		return out < status_color < '[' < C < ']' < (reset) < ' ';
@@ -321,35 +384,37 @@ inline bool check(const std::string &A, const std::string &B, const Func &gen) {
 
 } // namespace zen
 
+#undef with_lock
+
 #define PROBLEM(name) \
 	namespace zen { Problem main(#name); } \
 	int main() { zen::main.gen(); }
 
 #define SUBTASK(name, num) \
 	namespace zen { \
-	void subtask_##name##_impl(int id, Testcase &out); \
+	void subtask_##name##_impl(uint32_t id, Testcase &out, mic::random_engine<> &&e); \
 	const char subtask_##name##_helper = main.reg_subtask(#name, num, subtask_##name##_impl); \
 	} \
-	void zen::subtask_##name##_impl(int id, Testcase &out)
+	void zen::subtask_##name##_impl(uint32_t id, Testcase &out, mic::random_engine<> &&e)
 
 #define BATCH(name, num) \
 	namespace zen { \
-	void subtask_##name##_impl(int id, Testcase &out); \
+	void subtask_##name##_impl(uint32_t id, Testcase &out, mic::random_engine<> &&e); \
 	const char subtask_##name##_helper = main.reg_batch(#name, num, subtask_##name##_impl); \
 	} \
-	void zen::subtask_##name##_impl(int id, Testcase &out)
+	void zen::subtask_##name##_impl(uint32_t id, Testcase &out, mic::random_engine<> &&e)
 
 #define CONFIG( ... ) \
 	namespace zen { \
 		struct config_static_code_helper { \
-			config_static_code_helper() { zen::main.gen_config = __VA_ARGS__; } \
+			config_static_code_helper() { zen::main.config = __VA_ARGS__; } \
 		} _config_static_code_helper_instance; \
 	}
 
 #define ZEN_GEN(name, amount) \
-	inline void gen(int id, std::ofstream &out); \
+	inline void gen(uint32_t id, std::ofstream &out); \
 	int main() { zen::gen(name, amount, gen); } \
-	inline void gen(int id, std::ofstream &out)
+	inline void gen(uint32_t id, std::ofstream &out)
 
 #define ZEN_CHECK(A, B) \
 	inline void gen(std::ofstream &out); \

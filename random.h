@@ -29,7 +29,10 @@ private:
 	G engine;
 public:
 	random_engine(): engine(std::random_device{}()) {}
-	random_engine(typename G::result_type seed): engine(seed) {}
+	explicit random_engine(typename G::result_type seed): engine(seed) {}
+	random_engine(const random_engine &e) = delete;
+	random_engine(random_engine &&t) noexcept: engine(std::move(t.engine)) {}
+	random_engine& operator=(random_engine &&) noexcept = default;
 
 	template<class T>
 	inline typename T::result_type dist(T &t) { return t(engine); }
@@ -42,9 +45,15 @@ public:
 	inline T operator()(const T &l, const T &r) { return rand(l, r); }
 
 	template<class T>
+	inline T rand() {
+		using limit_type = std::numeric_limits<T>;
+		return distribution_type<T>(limit_type::min(), limit_type::max())(engine);
+	}
+
+	template<class T>
 	inline void shuffle(T first, T last) { std::shuffle(first, last, engine); }
 
-	inline bool percent(int p) { return operator()(1, 100) <= p; }
+	inline bool percent(int p) { return rand(1, 100) <= p; }
 
 	// We don't guarantee that the result is sorted.
 	template<class T, class = std::enable_if_t<std::is_integral_v<T>>>
