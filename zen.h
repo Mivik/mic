@@ -13,11 +13,8 @@
 
 #include <unistd.h>
 
-#include "io.h"
 #include "random.h"
 #include "term.h"
-
-using std::cerr;
 
 #ifndef ZEN_COMPILER
 #define ZEN_COMPILER "g++"
@@ -31,6 +28,9 @@ using std::cerr;
 #define with_lock(mutex) with(std::unique_lock lock(mutex))
 
 namespace zen {
+
+using std::cerr;
+using std::cout;
 
 const auto status_color = mic::term::bg_color(mic::term::green) + mic::term::fg_color(mic::term::white);
 const auto error_color = mic::term::bg_color(mic::term::red) + mic::term::fg_color(mic::term::white);
@@ -90,7 +90,7 @@ public:
 	std::ofstream *stream;
 
 	template<class T>
-	inline Testcase& operator<(const T &t) { (*stream) < t; return *this; }
+	inline Testcase& operator<(const T &t) { (*stream) << t; return *this; }
 
 	Testcase(const Testcase &t) = delete;
 	Testcase(Testcase &&t) noexcept:
@@ -154,43 +154,43 @@ void Problem::write_config_file(const std::vector<Testcase> &tests) {
 			std::ofstream out("data/config.yml");
 			for (size_t i = 0; i < tests.size(); ++i) {
 				const auto &e = tests[i];
-				out < config.data_prefix < (i + 1) < "." + config.input_suffix < ":\n";
-				out < "  timeLimit: " < e.time_limit < '\n';
-				out < "  memoryLimit: " < e.memory_limit < '\n';
-				out < "  subtaskId: " < e.subtask_id < '\n';
-				out < "  score: " < e.score < '\n';
+				out << config.data_prefix << (i + 1) << "." + config.input_suffix << ":\n";
+				out << "  timeLimit: " << e.time_limit << '\n';
+				out << "  memoryLimit: " << e.memory_limit << '\n';
+				out << "  subtaskId: " << e.subtask_id << '\n';
+				out << "  score: " << e.score << '\n';
 			}
 			out.close();
 			break;
 		}
 		case UOJ: {
 			std::ofstream out("data/problem.conf");
-			out < "use_builtin_judger on\n";
-			out < "use_builtin_checker " < config.UOJ_checker < endl;
-			out < "n_tests " < tests.size() < endl;
-			out < "n_sample_tests 0\n";
-			out < "n_ex_tests 0\n";
-			out < "input_pre " < config.data_prefix < endl;
-			out < "input_suf " < config.input_suffix < endl;
-			out < "output_pre " < config.data_prefix < endl;
-			out < "output_suf " < config.output_suffix < endl;
+			out << "use_builtin_judger on\n";
+			out << "use_builtin_checker " << config.UOJ_checker << '\n';
+			out << "n_tests " << tests.size() << '\n';
+			out << "n_sample_tests 0\n";
+			out << "n_ex_tests 0\n";
+			out << "input_pre " << config.data_prefix << '\n';
+			out << "input_suf " << config.input_suffix << '\n';
+			out << "output_pre " << config.data_prefix << '\n';
+			out << "output_suf " << config.output_suffix << '\n';
 			uint32_t max_time_limit = 0, max_memory_limit = 0;
 			for (const auto &test : tests) {
 				max_time_limit = std::max(test.time_limit, max_time_limit);
 				max_memory_limit = std::max(test.memory_limit, max_memory_limit);
 			}
-			out < "time_limit " < (uint32_t)std::ceil((double)max_time_limit / 1000) < '\n';
-			out < "memory_limit " < (uint32_t)std::ceil((double)max_memory_limit / 256) < '\n';
+			out << "time_limit " << (uint32_t)std::ceil((double)max_time_limit / 1000) << '\n';
+			out << "memory_limit " << (uint32_t)std::ceil((double)max_memory_limit / 256) << '\n';
 			if (has_subtask) {
-				out < "n_subtasks " < groups.size() < '\n';
+				out << "n_subtasks " << groups.size() << '\n';
 				for (size_t i = 0; i < tests.size(); ++i) {
 					if (i != tests.size() - 1 && tests[i].subtask_id == tests[i + 1].subtask_id) continue;
-					out < "subtask_score_" < tests[i].subtask_id < ' ' < tests[i].score < '\n';
-					out < "subtask_end_" < tests[i].subtask_id < ' ' < (i + 1) < '\n';
+					out << "subtask_score_" << tests[i].subtask_id << ' ' << tests[i].score << '\n';
+					out << "subtask_end_" << tests[i].subtask_id << ' ' << (i + 1) << '\n';
 				}
 			} else
 				for (size_t i = 0; i < tests.size(); ++i)
-					out < "point_score_" < (i + 1) < ' ' < tests[i].score < '\n';
+					out << "point_score_" << (i + 1) << ' ' << tests[i].score << '\n';
 			out.close();
 			break;
 		}
@@ -210,7 +210,7 @@ bool Problem::gen() {
 			throw std::runtime_error("Subtask directory is not supported in UOJ");
 	}
 	if (!config.checker.empty() && !fs::exists(config.checker)) {
-		cerr < "Provided checker (\"" + config.checker < "\") not found\n";
+		cerr << "Provided checker (\"" + config.checker << "\") not found\n";
 		return false;
 	}
 
@@ -227,7 +227,7 @@ bool Problem::gen() {
 
 	bar->set_message("Compiling std");
 	if (cmd(config.compiler + " " + config.compile_options + " " + name + ".cpp -o /tmp/" + name)) {
-		cerr < error_color < "Failed to compile" < (reset) < '\n';
+		cerr << error_color << "Failed to compile" << (reset) << '\n';
 		return false;
 	}
 
@@ -325,7 +325,7 @@ bool Problem::gen() {
 	}
 	if (config.parallel) for (auto &f : tasks) f.get();
 	if (!errors.empty()) {
-		cerr < error_color < errors.size() < " errors occurred" < (reset) < endl < endl;
+		cerr << error_color << errors.size() << " errors occurred" << (reset) << '\n' << '\n';
 		std::sort(errors.begin(), errors.end(),
 					[](const decltype(errors)::value_type &x, const decltype(errors)::value_type &y) {
 						return std::get<0>(x) < std::get<0>(y);
@@ -338,12 +338,12 @@ bool Problem::gen() {
 			bool has = false;
 			while (it != errors.end() && prefix < get<0>(*it) && get<0>(*it) <= (prefix + group.num_data)) {
 				if (!has) {
-					cerr < status_color < "=== Testcase Group: [" < group.name < "] ===" < (reset) < endl < endl;
+					cerr << status_color << "=== Testcase Group: [" << group.name << "] ===" << (reset) << '\n' << '\n';
 					has = true;
 				}
-				cerr < status_color < "Testcase " < (get<0>(*it) - prefix) < (reset)
-					 < ": " < error_color < get<1>(*it) < (reset) < endl;
-				cerr < get<2>(*it) < endl;
+				cerr << status_color << "Testcase " << (get<0>(*it) - prefix) << (reset)
+					 << ": " << error_color << get<1>(*it) << (reset) << '\n';
+				cerr << get<2>(*it) << '\n';
 				++it;
 			}
 			prefix += group.num_data;
@@ -353,19 +353,19 @@ bool Problem::gen() {
 	std::sort(tests.begin(), tests.end(),
 		[](const Testcase &x, const Testcase &y) { return x.id < y.id; });
 	write_config_file(tests);
-	if (config.pack_type == GenOnly) { cout < endl; return true; }
+	if (config.pack_type == GenOnly) { cout << '\n'; return true; }
 	bar->set_progress(90);
 	bar->set_message("Compressing");
 	fs::remove(name + ".zip");
 	if (cmd("zip -qj " + name + ".zip data/* " + config.checker)) {
-		cerr < "Failed to pack\n";
+		cerr << "Failed to pack\n";
 		return false;
 	}
 	bar->set_progress(100);
 	bar->set_message("Done");
 	bar.reset();
 
-	cout < "Packed to " < name < ".zip\n";
+	cout << "Packed to " << name << ".zip\n";
 	if (config.pack_type == PackOnly) fs::remove_all("data");
 	return true;
 }
@@ -376,7 +376,7 @@ inline bool gen(const std::string &name, uint32_t amount, const Func &func) {
 	namespace fs = std::filesystem;
 
 	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + name + ".cpp -o /tmp/" + name)) {
-		cerr < error_color < "Failed to compile" < (reset) < '\n';
+		cerr << error_color << "Failed to compile" << (reset) << '\n';
 		return false;
 	}
 	fs::remove_all("data");
@@ -384,21 +384,21 @@ inline bool gen(const std::string &name, uint32_t amount, const Func &func) {
 	uint32_t id;
 	auto info = [&](std::ostream &out = cout) -> std::ostream& {
 		reset_line();
-		return out < status_color < '[' < id < '/' < amount < ']' < (reset) < ' ';
+		return out << status_color << '[' << id << '/' << amount << ']' << (reset) << ' ';
 	};
 	for (id = 1; ; ++id) {
 		const auto prefix = "data/" + std::to_string(id) + ".";
-		info() < "Generating input... "; cout.flush();
+		info() << "Generating input... "; cout.flush();
 		std::ofstream out(prefix + "in"); func(id, out); out.close();
-		info() < "Generating output... "; cout.flush();
+		info() << "Generating output... "; cout.flush();
 		if (cmd("/tmp/" + name + " < " + prefix + "in > " + prefix + "out")) {
-			cerr < '\n' < error_color < "Failed to execute std" < (reset) < '\n';
+			cerr << '\n' << error_color << "Failed to execute std" << (reset) << '\n';
 			return false;
 		}
-		info() < "Done";
+		info() << "Done";
 		if (id == amount) break;
 	}
-	cout < endl;
+	cout << '\n';
 	return true;
 }
 
@@ -408,36 +408,36 @@ inline bool check(const std::string &A, const std::string &B, const Func &gen) {
 
 	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + A + " -o /tmp/A")
 		|| cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + B + " -o /tmp/B")) {
-		cerr < '\n' < error_color < "Failed to compile" < (reset) < '\n';
+		cerr << '\n' << error_color << "Failed to compile" << (reset) << '\n';
 		return false;
 	}
 	uint32_t C = 0;
 	auto info = [&](std::ostream &out = cout) -> std::ostream& {
 		reset_line();
-		return out < status_color < '[' < C < ']' < (reset) < ' ';
+		return out << status_color << '[' << C << ']' << (reset) << ' ';
 	};
 	while (true) {
 		std::ofstream out("test.in");
 		++C;
-		info() < "Generating... "; cout.flush();
+		info() << "Generating... "; cout.flush();
 		gen(out); out.close();
 
-		info() < "Running A... "; cout.flush();
+		info() << "Running A... "; cout.flush();
 		if (cmd("/tmp/A < test.in > /tmp/A.out")) {
-			cerr < '\n' < error_color < "Failed to execute A" < (reset) < '\n';
+			cerr << '\n' << error_color << "Failed to execute A" << (reset) << '\n';
 			return false;
 		}
-		info() < "Running B... "; cout.flush();
+		info() << "Running B... "; cout.flush();
 		if (cmd("/tmp/B < test.in > /tmp/B.out")) {
-			cerr < '\n' < error_color < "Failed to execute B" < (reset) < '\n';
+			cerr << '\n' << error_color << "Failed to execute B" << (reset) << '\n';
 			return false;
 		}
 		if (cmd("diff /tmp/A.out /tmp/B.out")) {
-			cerr < '\n' < error_color < "Failed" < (reset) < '\n';
+			cerr << '\n' << error_color << "Failed" << (reset) << '\n';
 			cmd("meld /tmp/A.out /tmp/B.out");
 			return false;
 		}
-		info() < "OK";
+		info() << "OK";
 	}
 }
 
