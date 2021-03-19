@@ -8,6 +8,7 @@
 #include <fstream>
 #include <functional>
 #include <future>
+#include <tuple>
 #include <type_traits>
 
 #include <unistd.h>
@@ -36,6 +37,15 @@ const auto error_color = mic::term::bg_color(mic::term::red) + mic::term::fg_col
 const auto subtask_color = mic::term::bg_color(mic::term::green) + mic::term::fg_color(mic::term::black);
 
 inline int cmd(const std::string &str) { return system(str.data()); }
+
+inline std::string read_file(const std::string &path) {
+	char buf[256];
+	std::string ret;
+	std::ifstream in(path);
+	while (size_t cnt = in.rdbuf()->sgetn(buf, sizeof(buf)))
+		ret.append(buf, buf + cnt);
+	return ret;
+}
 
 enum ConfigFileFormat : uint8_t {
 	None, Luogu, UOJ
@@ -224,7 +234,7 @@ bool Problem::gen() {
 	std::vector<std::future<void>> tasks;
 	std::vector<std::pair<bool, uint32_t>> subtask_score(groups.size(), { 0, 0 });
 	std::vector<std::mutex> group_mutex(groups.size());
-	std::vector<std::pair<uint32_t, std::string>> errors;
+	std::vector<std::tuple<uint32_t, std::string, std::string>> errors;
 	uint32_t id = 0, progress = 0;
 	std::mutex finish_mutex, test_mutex;
 	std::condition_variable cv;
@@ -240,10 +250,10 @@ bool Problem::gen() {
 					dir += '/';
 				} else dir = "data/";
 				dir += config.data_prefix;
-				auto error = [&](const std::string &e) {
+				auto error = [&](const std::string &e, const std::string &detail = "") {
 					with_lock(finish_mutex) {
 						++progress;
-						errors.emplace_back(id + i, e);
+						errors.emplace_back(id + i, e, detail);
 					}
 					cv.notify_one();
 				};
@@ -272,28 +282,54 @@ bool Problem::gen() {
 					}
 				with_lock(test_mutex) tests.push_back(std::move(test));
 				stream.close();
-				if (cmd("/tmp/" + name + " < " + prefix + config.input_suffix + " > " + prefix + config.output_suffix)) {
-					error("Failed to execute std");
+				const auto error_file = "/tmp/zen_tmp_" + name + "_" + std::to_string(id + i) + ".err";
+				if (cmd("/tmp/" + name
+						+ " < " + prefix + config.input_suffix
+						+ " > " + prefix + config.output_suffix
+						+ " 2> " + error_file)) {
+					error("Failed to execute std", read_file(error_file));
+					fs::remove(error_file);
 					return;
 				}
+				fs::remove(error_file);
 				with_lock(finish_mutex) ++progress;
 				cv.notify_one();
-			}, rng.rand<uint32_t>()));
+			}, rng.rand<decltype(rng)::engine_type::result_type>()));
 		}
 		id += group.num_data;
 	}
-	cout < status_color < "[0/" < total < ']' < (reset); cout.flush();
+	ProgressBar bar;
 	while (true) {
 		std::unique_lock lock(finish_mutex); cv.wait(lock);
-		reset_line(); cout < status_color < '[' < progress < '/' < total < ']' < (reset); cout.flush();
+		bar.set_progress(std::clamp<uint8_t>(std::round((double)progress * 100 / total), 0, 100));
 		if (progress == total) break;
 	}
 	for (auto &f : tasks) f.get();
 	cout < endl;
 	if (!errors.empty()) {
-		cout < error_color < errors.size() < " errors occurred" < (reset) < endl;
-		for (auto &[id, msg] : errors)
-			cout < id < ": " < error_color < msg < (reset) < endl;
+		cerr < error_color < errors.size() < " errors occurred" < (reset) < endl < endl;
+		std::sort(errors.begin(), errors.end(),
+					[](const decltype(errors)::value_type &x, const decltype(errors)::value_type &y) {
+						return std::get<0>(x) < std::get<0>(y);
+					});
+		auto it = errors.begin();
+		uint32_t prefix = 0;
+		for (auto &group : groups) {
+			using std::get;
+
+			bool has = false;
+			while (it != errors.end() && prefix < get<0>(*it) && get<0>(*it) <= (prefix + group.num_data)) {
+				if (!has) {
+					cerr < status_color < "=== Testcase Group: [" < group.name < "] ===" < (reset) < endl < endl;
+					has = true;
+				}
+				cerr < status_color < "Testcase " < (get<0>(*it) - prefix) < (reset)
+					 < ": " < error_color < get<1>(*it) < (reset) < endl;
+				cerr < get<2>(*it) < endl;
+				++it;
+			}
+			prefix += group.num_data;
+		}
 		return false;
 	}
 	std::sort(tests.begin(), tests.end(),

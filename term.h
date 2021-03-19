@@ -1,8 +1,15 @@
 
 #pragma once
 
-#include <iostream>
 #include <cassert>
+#include <cmath>
+#include <iomanip>
+#include <iostream>
+
+#include <sys/ioctl.h>
+#include <unistd.h>
+
+#include "signal.h"
 
 namespace mic::term {
 #define F(name, str) inline std::ostream& name(std::ostream &out) { return out << str; }
@@ -91,6 +98,70 @@ inline void move(int row, int col) {
 }
 
 } // namespace cursor
+
+struct WindowSize {
+public:
+	static WindowSize get() {
+		static winsize size;
+		ioctl(STDIN_FILENO, TIOCGWINSZ, (char*)&size);
+		return WindowSize(size.ws_col, size.ws_row);
+	}
+
+	uint32_t width, height;
+private:
+	WindowSize(uint32_t width, uint32_t height): width(width), height(height) {}
+};
+
+class WindowResizeListener : public SignalHandler {
+public:
+	explicit WindowResizeListener(std::function<void(const WindowSize&)> func):
+		SignalHandler(SIGWINCH, [ func{std::move((func(WindowSize::get()), func))} ](){
+			func(WindowSize::get());
+		}) {}
+	WindowResizeListener(const WindowResizeListener &t) = delete;
+	WindowResizeListener(WindowResizeListener &&t): SignalHandler(std::move(t)) {}
+	WindowResizeListener& operator=(WindowResizeListener &&t) = default;
+};
+
+class ProgressBar {
+public:
+	static const term::color_manip status_color, bar_color;
+
+	ProgressBar(): progress(0), listener([this](const WindowSize &size) { draw(size); }) {}
+	ProgressBar(const ProgressBar &t) = delete;
+	ProgressBar(ProgressBar &&t):
+		progress(t.progress),
+		listener(std::move(t.listener)) {}
+
+	void draw(const WindowSize &size = WindowSize::get()) {
+		using term::reset;
+
+		assert(size.width >= 8 && "The width of the window is too small to display a progress bar");
+		begin_of_line();
+
+		std::cout << status_color << '[' << std::setw(3) << std::setfill(' ') << (int)progress << "%]" << (reset);
+		std::cout << ' ';
+		uint32_t rem = size.width - 7, num = std::ceil((double)progress * rem / 100);
+		std::cout << bar_color;
+		for (uint32_t i = 0; i < num; ++i) std::cout << ' ';
+		std::cout << (reset);
+		for (uint32_t i = num; i < rem; ++i) std::cout << ' ';
+		std::cout.flush();
+	}
+
+	inline void set_progress(uint8_t progress) {
+		assert(0 <= progress && progress <= 100);
+		this->progress = progress; draw();
+	}
+	[[nodiscard]] inline uint8_t get_progress() const { return progress; }
+private:
+	uint8_t progress;
+	WindowResizeListener listener;
+};
+
+const term::color_manip
+	ProgressBar::status_color = term::bg_color(green) + term::fg_color(white),
+	ProgressBar::bar_color = term::bg_color(grey);
 
 #undef F
 #undef D

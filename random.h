@@ -16,6 +16,8 @@ namespace mic {
 template<class G = std::mt19937>
 struct random_engine {
 	static const size_t CHOOSE_USE_SPARSE_THRESOLD = 1024;
+
+	using engine_type = G;
 private:
 	template<class T>
 	using distribution_type =
@@ -35,17 +37,17 @@ public:
 	random_engine& operator=(random_engine &&) noexcept = default;
 
 	template<class T>
-	inline typename T::result_type dist(T &t) { return t(engine); }
+	[[nodiscard]] inline typename T::result_type dist(T &t) { return t(engine); }
 	template<class T>
-	inline typename T::result_type dist(T &&t) { return t(engine); }
+	[[nodiscard]] inline typename T::result_type dist(T &&t) { return t(engine); }
 
 	template<class T>
-	inline T rand(const T &l, const T &r) { return distribution_type<T>(l, r)(engine); }
+	[[nodiscard]] inline T rand(const T &l, const T &r) { return distribution_type<T>(l, r)(engine); }
 	template<class T>
-	inline T operator()(const T &l, const T &r) { return rand(l, r); }
+	[[nodiscard]] inline T operator()(const T &l, const T &r) { return rand(l, r); }
 
 	template<class T>
-	inline T rand() {
+	[[nodiscard]] inline T rand() {
 		using limit_type = std::numeric_limits<T>;
 		return distribution_type<T>(limit_type::min(), limit_type::max())(engine);
 	}
@@ -53,11 +55,11 @@ public:
 	template<class T>
 	inline void shuffle(T first, T last) { std::shuffle(first, last, engine); }
 
-	inline bool percent(int p) { return rand(1, 100) <= p; }
+	[[nodiscard]] inline bool percent(int p) { return rand(1, 100) <= p; }
 
 	// We don't guarantee that the result is sorted.
 	template<class T, class = std::enable_if_t<std::is_integral_v<T>>>
-	inline std::vector<T> choose(T lo, T hi, size_t num) {
+	[[nodiscard]] inline std::vector<T> choose(T lo, T hi, size_t num) {
 		if (!num) return {};
 		assert(lo <= hi);
 		const auto len = hi - lo + 1;
@@ -89,7 +91,7 @@ public:
 
 #define DEFINE_CHOOSE \
 	template<class T> \
-	inline typename std::iterator_traits<T>::reference choose
+	[[nodiscard]] inline typename std::iterator_traits<T>::reference choose
 
 	DEFINE_CHOOSE(T first, T last, std::input_iterator_tag) {
 		auto ret = first; ++first;
@@ -143,7 +145,7 @@ public:
 #undef DEFINE_CHOOSE
 
 	template<class T, class = std::enable_if_t<std::is_integral_v<T>>>
-	inline std::vector<T> partition(T sum, T count, T min_value = 1) {
+	[[nodiscard]] inline std::vector<T> partition(T sum, T count, T min_value = 1) {
 		if (min_value < 0) min_value = 0;
 		assert(sum >= 0 && count > 0);
 		assert(min_value * count <= sum);
@@ -160,7 +162,7 @@ public:
 		return ret;
 	}
 
-	inline graph::tree tree(size_t size) {
+	[[nodiscard]] inline graph::tree tree(size_t size) {
 		assert(size > 0);
 		if (size == 1) {
 			graph::tree tr; tr.resize(1);
@@ -171,7 +173,7 @@ public:
 		return graph::tree::from_prufer_code(prufer);
 	}
 
-	inline std::string brackets(size_t n) {
+	[[nodiscard]] inline std::string brackets(size_t n) {
 		const size_t len = n << 1;
 		bool arr[len];
 		std::fill(arr, arr + n, 1);
@@ -208,7 +210,9 @@ public:
 		return ret;
 	}
 
-	inline graph::binary_tree binary_tree(size_t n) { return graph::binary_tree::from_brackets(brackets(n)); }
+	[[nodiscard]] inline graph::binary_tree binary_tree(size_t n) {
+		return graph::binary_tree::from_brackets(brackets(n));
+	}
 };
 
 } // namespace mic
