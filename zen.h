@@ -202,6 +202,8 @@ bool Problem::gen() {
 	using namespace mic::term;
 	namespace fs = std::filesystem;
 
+	using seed_type = mic::random_engine<>::engine_type::result_type;
+
 	if (config.use_subtask_directory) {
 		if (!has_subtask) throw std::invalid_argument("You can't enable subtask directory in a non-subtask problem");
 		if (config.config_file == Luogu)
@@ -236,6 +238,7 @@ bool Problem::gen() {
 
 	std::vector<Testcase> tests; tests.reserve(total);
 	std::vector<std::future<void>> tasks;
+	std::vector<std::function<void(seed_type)>> direct_tasks;
 	std::vector<std::pair<bool, uint32_t>> subtask_score(groups.size(), { 0, 0 });
 	std::vector<std::mutex> group_mutex(groups.size());
 	std::vector<std::tuple<uint32_t, std::string, std::string>> errors;
@@ -246,7 +249,7 @@ bool Problem::gen() {
 	mic::random_engine<> rng(config.seed);
 	for (auto &group : groups) {
 		for (uint32_t i = 1; i <= group.num_data; ++i) {
-			tasks.push_back(std::async(config.parallel? std::launch::async: std::launch::deferred, [&, i, id](uint32_t seed) {
+			auto func = [&, i, id](seed_type seed) {
 				std::string dir;
 				if (config.use_subtask_directory) {
 					dir = "data/subtask" + std::to_string(group.id);
@@ -303,13 +306,16 @@ bool Problem::gen() {
 				fs::remove(error_file);
 				with_lock(finish_mutex) ++progress;
 				cv.notify_one();
-			}, rng.rand<decltype(rng)::engine_type::result_type>()));
+			};
+			if (config.parallel)
+				tasks.push_back(std::async(std::launch::async, std::move(func), rng.rand<seed_type>()));
+			else direct_tasks.push_back(std::move(func));
 		}
 		id += group.num_data;
 	}
 	if (!config.parallel)
 		std::thread([&]() {
-			for (auto &f : tasks) f.get();
+			for (auto &task : direct_tasks) task(rng.rand<seed_type>());
 		}).detach();
 
 	const uint8_t pro_upper = config.pack_type == GenOnly? 100: 90;
