@@ -36,11 +36,14 @@ struct color_manip {
 	color_manip(): fg(undef), bg(undef), bright(false) {}
 	color_manip(color fg, color bg, bool bright):
 		fg(fg), bg(bg), bright(bright) {}
-	inline color_manip operator+(const color_manip &other) {
+	inline color_manip operator+(const color_manip &other) const {
 		color_manip ret = *this;
 		if (other.fg != undef) { ret.fg = other.fg; ret.bright = other.bright; }
 		if (other.bg != undef) ret.bg = other.bg;
 		return ret;
+	}
+	inline bool operator==(const color_manip &other) const {
+		return fg == other.fg && bg == other.bg && bright == other.bright;
 	}
 	friend inline std::ostream& operator<<(std::ostream &out, const color_manip &c) {
 		out << "\e[";
@@ -125,43 +128,68 @@ public:
 
 class ProgressBar {
 public:
-	static const term::color_manip status_color, bar_color;
+	static const term::color_manip status_color;
 
-	ProgressBar(): progress(0), listener([this](const WindowSize &size) { draw(size); }) {}
+	ProgressBar():
+		message(""),
+		progress(0),
+		background_color(term::bg_color(grey) + term::fg_color(black)),
+		listener([this](const WindowSize &size) { draw(size); }) {}
 	ProgressBar(const ProgressBar &t) = delete;
 	ProgressBar(ProgressBar &&t):
+		message(std::move(t.message)),
 		progress(t.progress),
+		background_color(t.background_color),
 		listener(std::move(t.listener)) {}
 
 	void draw(const WindowSize &size = WindowSize::get()) {
 		using term::reset;
 
-		assert(size.width >= 8 && "The width of the window is too small to display a progress bar");
+		assert(size.width >= 12 && "The width of the window is too small to display a progress bar");
 		begin_of_line();
 
 		std::cout << status_color << '[' << std::setw(3) << std::setfill(' ') << (int)progress << "%]" << (reset);
 		std::cout << ' ';
-		uint32_t rem = size.width - 7, num = std::ceil((double)progress * rem / 100);
-		std::cout << bar_color;
-		for (uint32_t i = 0; i < num; ++i) std::cout << ' ';
+		uint32_t rem = size.width - 7, num = std::ceil((double)progress * rem / 100), str_maxlen = rem - 2;
+		std::string display = message.size() > str_maxlen? (message.substr(0, str_maxlen - 3) + "..."): message;
+		uint32_t begin = (rem - display.size() + 1) / 2, end = begin + display.size();
+		assert(end <= rem);
+		std::cout << background_color;
+		for (uint32_t i = 0; i < rem; ++i) {
+			if (i == num) std::cout << (reset);
+			if (i < begin) std::cout << ' ';
+			else if (i < end) std::cout << display[i - begin];
+			else std::cout << ' ';
+		}
 		std::cout << (reset);
-		for (uint32_t i = num; i < rem; ++i) std::cout << ' ';
 		std::cout.flush();
 	}
 
 	inline void set_progress(uint8_t progress) {
 		assert(0 <= progress && progress <= 100);
+		if (this->progress == progress) return;
 		this->progress = progress; draw();
 	}
 	[[nodiscard]] inline uint8_t get_progress() const { return progress; }
+	inline void set_message(const std::string &message) {
+		if (this->message == message) return;
+		this->message = message; draw();
+	}
+	[[nodiscard]] inline const std::string& get_message() const { return message; }
+	inline void set_background_color(const term::color_manip &color) {
+		if (background_color == color) return;
+		this->background_color = color; draw();
+	}
+	[[nodiscard]] inline const term::color_manip& get_background_color() const { return background_color; }
 private:
+	std::string message;
 	uint8_t progress;
+	term::color_manip background_color;
 	WindowResizeListener listener;
 };
 
 const term::color_manip
-	ProgressBar::status_color = term::bg_color(green) + term::fg_color(white),
-	ProgressBar::bar_color = term::bg_color(grey);
+	ProgressBar::status_color = term::bg_color(green) + term::fg_color(white);
 
 #undef F
 #undef D

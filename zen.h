@@ -223,10 +223,14 @@ bool Problem::gen() {
 		score_thresold = num - (100 - num * score_average);
 	}
 
+	auto bar = std::make_unique<ProgressBar>();
+
+	bar->set_message("Compiling std");
 	if (cmd(config.compiler + " " + config.compile_options + " " + name + ".cpp -o /tmp/" + name)) {
 		cerr < error_color < "Failed to compile" < (reset) < '\n';
 		return false;
 	}
+
 	fs::remove_all("data");
 	fs::create_directories("data");
 
@@ -307,14 +311,19 @@ bool Problem::gen() {
 		std::thread([&]() {
 			for (auto &f : tasks) f.get();
 		}).detach();
-	ProgressBar bar;
+
+	const uint8_t pro_upper = config.pack_type == GenOnly? 100: 90;
+	const auto pro_suffix = "/" + std::to_string(total) + ')';
+	bar->set_progress(5);
+	bar->set_message("Generating data (0" + pro_suffix);
 	while (true) {
 		std::unique_lock lock(finish_mutex); cv.wait(lock);
-		bar.set_progress(std::clamp<uint8_t>(std::round((double)progress * 100 / total), 0, 100));
+		if (!errors.empty()) bar->set_background_color(bg_color(color::red) + fg_color(color::white));
+		bar->set_progress(std::clamp<uint8_t>(std::round((double)progress * (pro_upper - 5) / total) + 5, 5, pro_upper));
+		bar->set_message("Generating data (" + std::to_string(progress) + pro_suffix);
 		if (progress == total) break;
 	}
 	if (config.parallel) for (auto &f : tasks) f.get();
-	cout < endl;
 	if (!errors.empty()) {
 		cerr < error_color < errors.size() < " errors occurred" < (reset) < endl < endl;
 		std::sort(errors.begin(), errors.end(),
@@ -344,14 +353,19 @@ bool Problem::gen() {
 	std::sort(tests.begin(), tests.end(),
 		[](const Testcase &x, const Testcase &y) { return x.id < y.id; });
 	write_config_file(tests);
-	if (config.pack_type == GenOnly) return true;
-	cout < "Packing..."; cout.flush();
+	if (config.pack_type == GenOnly) { cout < endl; return true; }
+	bar->set_progress(90);
+	bar->set_message("Compressing");
 	fs::remove(name + ".zip");
 	if (cmd("zip -qj " + name + ".zip data/* " + config.checker)) {
 		cerr < "Failed to pack\n";
 		return false;
 	}
-	reset_line(); cout < "Packed to " < name < ".zip\n";
+	bar->set_progress(100);
+	bar->set_message("Done");
+	bar.reset();
+
+	cout < "Packed to " < name < ".zip\n";
 	if (config.pack_type == PackOnly) fs::remove_all("data");
 	return true;
 }
