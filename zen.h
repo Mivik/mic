@@ -239,10 +239,10 @@ bool Problem::gen() {
 	std::mutex finish_mutex, test_mutex;
 	std::condition_variable cv;
 
-	mic::random_engine<> rng;
+	mic::random_engine<> rng(config.seed);
 	for (auto &group : groups) {
 		for (uint32_t i = 1; i <= group.num_data; ++i) {
-			tasks.push_back(std::async(std::launch::async, [&, i, id](uint32_t seed) {
+			tasks.push_back(std::async(config.parallel? std::launch::async: std::launch::deferred, [&, i, id](uint32_t seed) {
 				std::string dir;
 				if (config.use_subtask_directory) {
 					dir = "data/subtask" + std::to_string(group.id);
@@ -266,7 +266,12 @@ bool Problem::gen() {
 					if ((has_subtask? group.id: (id + i)) > score_thresold) ++score;
 				} else if (config.score_type == Same) score = config.score;
 				Testcase test(id + i, has_subtask? group.id: 0, score, config, stream);
-				group.gen(i, test, mic::random_engine<>(seed));
+				try {
+					group.gen(i, test, mic::random_engine<>(seed));
+				} catch (const std::exception &e) {
+					error("Failed to generate input", e.what());
+					return;
+				}
 				if (config.score_type == Manual && test.score == -1) {
 					error("Score type set to \"Manual\" but no score was set");
 					return;
@@ -298,13 +303,17 @@ bool Problem::gen() {
 		}
 		id += group.num_data;
 	}
+	if (!config.parallel)
+		std::thread([&]() {
+			for (auto &f : tasks) f.get();
+		}).detach();
 	ProgressBar bar;
 	while (true) {
 		std::unique_lock lock(finish_mutex); cv.wait(lock);
 		bar.set_progress(std::clamp<uint8_t>(std::round((double)progress * 100 / total), 0, 100));
 		if (progress == total) break;
 	}
-	for (auto &f : tasks) f.get();
+	if (config.parallel) for (auto &f : tasks) f.get();
 	cout < endl;
 	if (!errors.empty()) {
 		cerr < error_color < errors.size() < " errors occurred" < (reset) < endl < endl;
