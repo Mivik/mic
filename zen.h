@@ -90,7 +90,7 @@ public:
 	std::ofstream *stream;
 
 	template<class T>
-	inline Testcase& operator<(const T &t) { (*stream) << t; return *this; }
+	inline Testcase& operator<<(const T &t) { (*stream) << t; return *this; }
 
 	Testcase(const Testcase &t) = delete;
 	Testcase(Testcase &&t) noexcept:
@@ -313,23 +313,31 @@ bool Problem::gen() {
 		}
 		id += group.num_data;
 	}
-	if (!config.parallel)
-		std::thread([&]() {
-			for (auto &task : direct_tasks) task(rng.rand<seed_type>());
-		}).detach();
 
-	const uint8_t pro_upper = config.pack_type == GenOnly? 100: 90;
-	const auto pro_suffix = "/" + std::to_string(total) + ')';
-	bar->set_progress(5);
-	bar->set_message("Generating data (0" + pro_suffix);
-	while (true) {
-		std::unique_lock lock(finish_mutex); cv.wait(lock);
-		if (!errors.empty()) bar->set_background_color(bg_color(color::red) + fg_color(color::white));
-		bar->set_progress(std::clamp<uint8_t>(std::round((double)progress * (pro_upper - 5) / total) + 5, 5, pro_upper));
-		bar->set_message("Generating data (" + std::to_string(progress) + pro_suffix);
-		if (progress == total) break;
+	auto show_progress = [&]() {
+		const uint8_t pro_upper = config.pack_type == GenOnly? 100: 90;
+		const auto pro_suffix = "/" + std::to_string(total) + ')';
+		bar->set_progress(5);
+		bar->set_message("Generating data (0" + pro_suffix);
+		while (true) {
+			std::unique_lock lock(finish_mutex); cv.wait(lock);
+			if (!errors.empty()) bar->set_background_color(bg_color(color::red) + fg_color(color::white));
+			bar->set_progress(std::clamp<uint8_t>(std::round((double)progress * (pro_upper - 5) / total) + 5, 5, pro_upper));
+			bar->set_message("Generating data (" + std::to_string(progress) + pro_suffix);
+			if (progress == total) break;
+		}
+	};
+	if (!config.parallel) {
+		// std::thread([&]() {
+			// for (auto &task : direct_tasks) task(rng.rand<seed_type>());
+		// }).detach();
+		std::thread thr(show_progress);
+		for (auto &task : direct_tasks) task(rng.rand<seed_type>());
+		thr.join();
+	} else {
+		show_progress();
+		for (auto &f : tasks) f.get();
 	}
-	if (config.parallel) for (auto &f : tasks) f.get();
 	if (!errors.empty()) {
 		cerr << error_color << errors.size() << " errors occurred" << (reset) << '\n' << '\n';
 		std::sort(errors.begin(), errors.end(),
