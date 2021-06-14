@@ -328,9 +328,6 @@ bool Problem::gen() {
 		}
 	};
 	if (!config.parallel) {
-		// std::thread([&]() {
-			// for (auto &task : direct_tasks) task(rng.rand<seed_type>());
-		// }).detach();
 		std::thread thr(show_progress);
 		for (auto &task : direct_tasks) task(rng.rand<seed_type>());
 		thr.join();
@@ -384,8 +381,10 @@ bool Problem::gen() {
 	return true;
 }
 
-template<class Func, class = std::enable_if_t<std::is_invocable_r_v<void, Func, uint32_t, std::ofstream&>>>
+template<class Func>
 inline bool gen(const std::string &name, uint32_t amount, const Func &func) {
+	static_assert(std::is_invocable_r_v<void, Func, uint32_t, std::ofstream&>);
+
 	using namespace mic::term;
 	namespace fs = std::filesystem;
 
@@ -416,8 +415,10 @@ inline bool gen(const std::string &name, uint32_t amount, const Func &func) {
 	return true;
 }
 
-template<class Func, class = std::enable_if_t<std::is_invocable_r_v<void, Func, std::ofstream&>>>
+template<class Func>
 inline bool check(const std::string &A, const std::string &B, const Func &gen) {
+	static_assert(std::is_invocable_r_v<void, Func, std::ofstream&>);
+
 	using namespace mic::term;
 
 	if (cmd(ZEN_COMPILER " " ZEN_COMPILE_OPTS " " + A + " -o /tmp/A")
